@@ -7,7 +7,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 CACHE_DIR = Path(os.environ.get('PIPELINE_CACHE', ROOT / '.cache' / 'pipeline'))
 STORE_DIR = ROOT / 'pipeline' / 'store'
-OUT_DIR = ROOT / 'web' / 'public' / 'data'
+OUT_DIR = Path(os.environ.get('PIPELINE_OUT', ROOT / 'web' / 'public' / 'data'))
 
 JOLPICA = 'https://api.jolpi.ca/ergast/f1'
 OPENF1 = 'https://api.openf1.org/v1'

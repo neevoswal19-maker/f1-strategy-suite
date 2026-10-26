@@ -132,19 +132,25 @@ def race_from_fastf1(year, rnd):
     l = s.laps
     if not len(l):
         return None
-    t0 = s.t0_date
+    t0 = pd.Timestamp('2000-01-01')   # laps and weather share the session clock; any fixed base works
     laps = pd.DataFrame({
         'Driver': l['Driver'], 'LapNumber': l['LapNumber'], 'LapTimeS': l['LapTime'].dt.total_seconds(),
         'Compound': l['Compound'], 'TyreLife': l['TyreLife'],
         'PitIn': l['PitInTime'].notna(), 'PitOut': l['PitOutTime'].notna(),
         'Green': l['TrackStatus'] == '1', 'LapStart': t0 + l['LapStartTime']})
-    w = s.weather_data
-    weather = pd.DataFrame({'Time': t0 + w['Time'], 'TrackTemp': w['TrackTemp'], 'Rainfall': w['Rainfall']})
+    try:
+        w = s.weather_data
+        weather = pd.DataFrame({'Time': t0 + w['Time'], 'TrackTemp': w['TrackTemp'], 'Rainfall': w['Rainfall']})
+    except Exception:          # the archive has no weather for some races
+        weather = pd.DataFrame({'Time': [laps['LapStart'].min()], 'TrackTemp': [35.0], 'Rainfall': [False]})
+    try:
+        total = int(s.total_laps)
+    except Exception:          # FastF1 raises its own error when the lap count is missing
+        total = int(laps['LapNumber'].max())
     return SimpleNamespace(year=year, round=rnd, name=s.event['EventName'], date=pd.Timestamp(s.date),
                            laps=laps.dropna(subset=['LapTimeS']), weather=weather,
                            results=s.results[['Abbreviation', 'Position']].copy(),
-                           total_laps=int(getattr(s, 'total_laps', None) or laps['LapNumber'].max()),
-                           source='FastF1 archive')
+                           total_laps=total, source='FastF1 archive')
 
 def load_race(year, rnd):
     """One race as a standard lap table (OpenF1 for 2023+, FastF1 before), or None if there is no data."""

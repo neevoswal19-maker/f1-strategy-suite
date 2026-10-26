@@ -9,12 +9,13 @@ if race is None:   # nothing usable at this circuit: fall back to the latest rac
     fallback_years = [YEAR, YEAR - 1] + [y for y in (NOW.year, NOW.year - 1) if y >= 2023 and y < YEAR - 1 or y > YEAR]
     for y in dict.fromkeys(fallback_years):
         s = season_schedule(y)
-        for r in s.loc[race_finished(s, NOW), 'RoundNumber'][::-1]:
+        for r in list(s.loc[race_finished(s, NOW), 'RoundNumber'][::-1])[:3]:   # try the 3 latest races per season
             race = load_race(y, int(r))
             if race is not None:
                 DATA_YEAR, DATA_ROUND = y, int(r)
                 CIRCUIT = s.loc[s['RoundNumber'] == r, 'circuitId'].iloc[0]
                 print(f'No lap data at this circuit, using {race.name} {y} instead.')
+                event, UPCOMING, YEAR = s.get_event_by_round(int(r)), False, y
                 break
         if race is not None:
             break
