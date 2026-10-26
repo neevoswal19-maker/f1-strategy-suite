@@ -1,0 +1,11 @@
+.venv/
+.cache/
+__pycache__/
+*.pyc
+notebook/f1_cache/
+f1_cache/
+web/node_modules/
+web/dist/
+.DS_Store
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
