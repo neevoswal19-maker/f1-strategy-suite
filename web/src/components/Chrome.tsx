@@ -25,6 +25,7 @@ export function Nav({ viewingArchive, onCurrent }: { viewingArchive: boolean; on
           )}
           <button onClick={() => jump('prediction')} className="label hidden min-h-11 items-center hover:text-ink md:flex">Prediction</button>
           <button onClick={() => jump('simulator')} className="label hidden min-h-11 items-center hover:text-ink md:flex">Simulator</button>
+          <button onClick={() => jump('learning')} className="label hidden min-h-11 items-center hover:text-ink md:flex">How it learns</button>
           <button onClick={() => jump('season')} className="label hidden min-h-11 items-center hover:text-ink md:flex">Seasons</button>
           <a href={COLAB} target="_blank" rel="noreferrer" className="grid size-11 place-items-center rounded-full bg-card text-ink hover:bg-raised" aria-label="Open the strategy notebook in Colab">
             <Notebook size={18} />

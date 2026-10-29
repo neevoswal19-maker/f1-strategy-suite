@@ -4,9 +4,9 @@ import numpy as np
 import pandas as pd
 
 from . import config
-from .sources import openf1
+from .sources import jolpica, openf1
 
-WEEKEND_FEATS = ['fp_gap', 'fp_lr_gap', 'q_gap', 'q_pos']
+WEEKEND_FEATS = ['fp_gap', 'fp_lr_gap', 'q_gap', 'q_pos', 'has_fp']
 STORE_FEATS = config.STORE_DIR / 'weekend_features.csv'
 STORE_COND = config.STORE_DIR / 'race_conditions.csv'
 
@@ -104,12 +104,44 @@ def weekend_features(meeting, year, kind='gp', cached=True):
 
 
 def fill_weekend(d):
-    """Missing practice numbers get the field's worst value (did not run / no long run)."""
+    """Missing practice numbers get the field's worst value (did not run / no long run).
+    has_fp tells the model whether the weekend had practice data at all (none before 2023)."""
     d = d.copy()
+    d['has_fp'] = float(d['fp_gap'].notna().any())
     d['fp_gap'] = d['fp_gap'].fillna(d['fp_gap'].max()).fillna(0.03)
     d['fp_lr_gap'] = d['fp_lr_gap'].fillna(d['fp_gap'])
-    d['q_gap'] = d['q_gap'].fillna(d['q_gap'].max())
+    d['q_gap'] = d['q_gap'].fillna(d['q_gap'].max()).fillna(0.01)
     d['q_pos'] = d['q_pos'].fillna(len(d))
+    return d
+
+
+def _secs(t):
+    try:
+        m, s = str(t).split(':')
+        return int(m) * 60 + float(s)
+    except ValueError:
+        return np.nan
+
+
+def jolpica_quali(year):
+    """Qualifying gaps and order for seasons before OpenF1 (no practice data exists for those)."""
+    rows = []
+    for race in jolpica(f'{year}/qualifying', cached=True):
+        rid = year * 100 + int(race['round'])
+        for x in race.get('QualifyingResults', []):
+            best = min([_secs(x[q]) for q in ('Q1', 'Q2', 'Q3') if x.get(q)] or [np.nan])
+            rows.append({'race_id': rid, 'driverCode': x['Driver'].get('code') or x['Driver']['familyName'][:3].upper(),
+                         'number': int(x.get('number', 0) or 0), 'q_pos': float(x['position']), 'q_best': best})
+    d = pd.DataFrame(rows)
+    if d.empty:
+        return d
+    d = d[d.groupby('race_id')['q_best'].transform('count') >= 10]     # e.g. 2020 Sakhir has positions but no times
+    d['pole_time'] = d.groupby('race_id')['q_best'].transform('min')
+    d['q_gap'] = d['q_best'] / d['pole_time'] - 1
+    d[['fp_gap', 'fp_lr_gap', 'fp_lr']] = np.nan
+    d['fp_session'] = None
+    d['q_session'] = 'Qualifying'
+    d['kind'] = 'gp'
     return d
 
 
@@ -138,6 +170,13 @@ def update_stores(races, now, log=print):
     have_f = set(zip(feats['race_id'], feats['kind'])) if len(feats) else set()
     have_c = set(cond['race_id']) if len(cond) else set()
     new_f, new_c = [], []
+    for y in sorted(races.loc[races['season'] < config.WEEKEND_FROM, 'season'].unique()):
+        have_y = {rid for rid, k in have_f if rid // 100 == y}
+        if not have_y:
+            q = jolpica_quali(int(y))
+            if len(q):
+                new_f.append(q)
+                log(f'   {y}: qualifying for {q["race_id"].nunique()} races from Jolpica')
     todo = races[(races['season'] >= config.WEEKEND_FROM) & (races['raceStart'] + pd.Timedelta(days=1) < now)]
     for i, r in enumerate(todo.itertuples(), 1):
         rid = r.season * 100 + r.round

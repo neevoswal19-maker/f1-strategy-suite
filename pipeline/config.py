@@ -14,8 +14,9 @@ OPENF1 = 'https://api.openf1.org/v1'
 MULTIVIEWER = 'https://api.multiviewer.app/api/v1'
 OPEN_METEO = 'https://api.open-meteo.com/v1/forecast'
 
-HISTORY_FROM = 2019      # race results used for form and circuit history
-WEEKEND_FROM = 2023      # OpenF1 practice/qualifying data starts here
+HISTORY_FROM = 2017      # race results used for form and circuit history
+TRAIN_FROM = 2019        # first season the model trains and is tested on
+WEEKEND_FROM = 2023      # OpenF1 practice/qualifying data starts here; before it, qualifying comes from Jolpica
 TEST_RACES = 12          # most recent weekends held back to back-test the winner model
 RAIN_DEFAULT = 0.15      # rain chance when there is no forecast
 RAIN_CHAOS = 0.6         # how much rain flattens the odds

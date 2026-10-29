@@ -17,7 +17,8 @@ pipeline/                winner model and the website's data (runs in GitHub Act
   build.py               entry point: python -m pipeline.build
   history.py             race results and driver form (Jolpica / Ergast)
   weekend.py             practice + qualifying features from OpenF1, cached in store/
-  model.py               logistic regression vs gradient boosting, back-test, reasons
+  model.py               the 18 model setups (logistic regression, gradient boosting, recency weighting), reasons
+  learning.py            self-learning: replays every race since 2019 and re-weights the setups after each one
   simparams.py           the simulator's ten factors and their fitted weights
   tracks.py              circuit outlines (MultiViewer)
 web/                     the website (Vite + React + TypeScript + Tailwind)
@@ -29,6 +30,7 @@ docs/                    the original project handoff
 ## Data sources
 
 - **OpenF1**: laps, stints, weather, race control, results, drivers and photos (2023 onwards, free).
+- **Jolpica qualifying times** stand in for 2019-2022, when there is no free practice data, so the model trains and is tested on every race since 2019.
 - **Jolpica (Ergast)**: race results and the calendar.
 - **FastF1**: calendar in the notebook, and lap data for 2018-2022 from its free archive. Since 2026 FastF1 needs a paid F1 TV login for newer live-timing data, so the notebook reads 2023+ laps from OpenF1 instead.
 - **Open-Meteo**: rain forecast. **MultiViewer**: track layouts.

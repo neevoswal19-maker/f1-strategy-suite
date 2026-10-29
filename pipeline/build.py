@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 
-from . import config, history, model, simparams, weekend
+from . import config, history, learning, model, simparams, weekend
 from .sources import rain_forecast
 from .tracks import build_track
 
@@ -78,6 +78,21 @@ def driver_cards(meeting, year, cached, fallback_meeting=None):
     return {}
 
 
+TEAM_COLOURS = {
+    'mercedes': '#27F4D2', 'red_bull': '#3671C6', 'ferrari': '#E8002D', 'mclaren': '#FF8000',
+    'alpine': '#0093CC', 'renault': '#FFF500', 'alphatauri': '#5E8FAA', 'toro_rosso': '#469BFF',
+    'rb': '#6692FF', 'aston_martin': '#229971', 'racing_point': '#F596C8', 'force_india': '#F596C8',
+    'williams': '#64C4FF', 'alfa': '#C92D4B', 'sauber': '#52E252', 'haas': '#B6BABD',
+}
+
+
+def cards_from_results(rows):
+    return {r['driverCode']: {'code': r['driverCode'], 'number': int(r['number'] or 0),
+                              'first': r['givenName'], 'last': r['familyName'], 'team': r['constructorName'],
+                              'colour': TEAM_COLOURS.get(r['constructorId'], '#8a8a93'), 'photo': None}
+            for _, r in rows.iterrows()}
+
+
 def circuit_stats(hist, cond, races, circuit_id, laps_default):
     done = hist[hist['position'].notna() & (hist['circuitId'] == circuit_id)]
     corr = done.groupby('race_id')[['grid', 'position']].apply(lambda d: d['grid'].corr(d['position'], method='spearman'))
@@ -117,9 +132,13 @@ def target_rows(hist_raw, rnd_row, lineup):
     return pd.DataFrame(rows)
 
 
-def prediction_block(rows, win_model, lr_model, rain, rain_source, kind, actual, n_train):
+def prediction_block(rows, win_model, lr_model, rain, rain_source, kind, actual, n_train, temp=1.0, probs=None):
     rows = rows.copy()
-    rows['p'] = model.race_probs(win_model, rows)
+    if probs is not None:      # the replayed self-learning prediction for this race
+        p = rows['driverCode'].map(probs).fillna(1e-6)
+        rows['p'] = p / p.sum()
+    else:
+        rows['p'] = model.race_probs(win_model, rows, temp)
     win, pod, exp_pos = model.sample_orders(rows['p'].values, rain)
     rows['win'], rows['podium'], rows['exp'] = win, pod, exp_pos
     why = model.reasons(rows, lr_model)
@@ -131,7 +150,8 @@ def prediction_block(rows, win_model, lr_model, rain, rain_source, kind, actual,
     pick = results[0]['code']
     return {'kind': kind, 'label': 'Sprint' if kind == 'sprint' else 'Grand Prix',
             'rainChance': rain, 'rainSource': rain_source,
-            'sessions': {'practice': rows['fp_session'].iloc[0], 'qualifying': rows['q_session'].iloc[0]},
+            'sessions': {'practice': rows['fp_session'].iloc[0] if rows['has_fp'].iloc[0] else None,
+                         'qualifying': rows['q_session'].iloc[0]},
             'counts': {'drivers': len(rows), 'trainingWeekends': n_train},
             'results': results, 'predictedWinner': pick, 'actualWinner': actual,
             'hit': (actual == pick) if actual else None}
@@ -144,7 +164,7 @@ def main():
     log(f'Building for season {season}, now = {now:%Y-%m-%d %H:%M} UTC')
 
     races = pd.concat([history.schedule(y, cached=y < season)
-                       for y in range(config.WEEKEND_FROM, season + 1)], ignore_index=True)
+                       for y in range(config.TRAIN_FROM, season + 1)], ignore_index=True)
     cal = races[races['season'] == season].reset_index(drop=True)
     log(f'Calendar: {len(cal)} rounds in {season}')
 
@@ -169,7 +189,7 @@ def main():
 
     # training table: finished 2023+ weekends with practice + qualifying features
     gp_feats = feats[feats['kind'] == 'gp'].drop(columns=['kind', 'number'])
-    done_rows = hist[hist['position'].notna() & (hist['season'] >= config.WEEKEND_FROM)]
+    done_rows = hist[hist['position'].notna() & (hist['season'] >= config.TRAIN_FROM)]
     train_all = done_rows.merge(gp_feats, on=['race_id', 'driverCode'], how='inner')
     train_all = pd.concat([weekend.fill_weekend(d) for _, d in train_all.groupby('race_id')], ignore_index=True)
     train_all['team'] = train_all['constructorId'].map(team_names)
@@ -177,11 +197,12 @@ def main():
     n_weekends = train_all['race_id'].nunique()
     log(f'Training set: {n_weekends} weekends, {len(train_all)} driver entries')
 
-    best_name, bt, window = model.backtest(train_all)
-    log(f'Back-test ({window}): best = {best_name}')
+    state = learning.run(train_all, races, log)
+    best_name = f"Blend of {state['tried']} self-weighting setups"
+    bt, window = state['backtest'], state['window']
     for k, v in bt.items():
         log('   ', k, {a: round(b, 3) for a, b in v.items()})
-    win_model = model.fit(best_name, train_all)
+    win_model = model.fit_setup(state['key'], state['halfLife'], train_all)
     lr_model = model.fit('Logistic regression', train_all)
     imp = model.importances(win_model)
 
@@ -191,18 +212,23 @@ def main():
 
     model_card = {'name': best_name, 'backtest': bt, 'window': window,
                   'importance': imp.round(4).to_dict(), 'trainingWeekends': n_weekends,
-                  'features': model.FEATS}
+                  'features': model.FEATS,
+                  'learning': {'trusted': state['trusted'], 'calibration': state['calibration'],
+                               'setups': state['tried'], 'replayed': state['replayed'], 'overall': state['overall'],
+                               'recent': state['backtest'], 'eta': state['eta'], 'alpha': state['alpha'],
+                               'eras': state['eras'], 'firstRace': state['firstRace'],
+                               'history': state['history'][-12:][::-1]}}
     sim_card = {'weights': weights.to_dict(),
                 'params': [{'key': k, 'label': l, 'desc': d} for k, l, d in simparams.PARAMS],
                 'fittedOn': sim_n}
 
     ctx = SimpleNamespace(now=now, races=races, hist=hist, cond=cond, feats=feats, train_all=train_all,
                           best_name=best_name, win_model=win_model, lr_model=lr_model, n_weekends=n_weekends,
-                          team_names=team_names, sim_card=sim_card, window=window)
+                          team_names=team_names, sim_card=sim_card, window=window, state=state)
 
     # the current season is rebuilt every run; finished seasons only when their summary is missing
     seasons = []
-    for y in range(config.WEEKEND_FROM, season + 1):
+    for y in range(config.TRAIN_FROM, season + 1):
         summary_file = config.OUT_DIR / 'seasons' / f'{y}.json'
         if y < season and summary_file.exists() and not os.environ.get('FULL_REBUILD'):
             summary = json.loads(summary_file.read_text(encoding='utf-8'))
@@ -226,9 +252,18 @@ def main():
              'current': next((r['id'] for r in this['weekends'] if r['status'] == 'current'), this['weekends'][-1]['id']),
              'hitRate': this['hitRate'],
              'seasons': [{'season': s['season'], **s['hitRate']} for s in seasons],
-             'model': model_card, 'simulator': sim_card, 'weekends': this['weekends']}
+             'model': model_card, 'simulator': sim_card, 'weekends': this['weekends'],
+             'mistakes': recent_mistakes(seasons)}
     write(config.OUT_DIR / 'index.json', index)
     log(f'Done. {season} hit rate {index["hitRate"]}')
+
+
+def recent_mistakes(seasons, n=8):
+    """Latest races the model got wrong, with how much chance it gave the real winner."""
+    misses = [dict(w, season=s['season']) for s in seasons for w in s['weekends'] if w.get('hit') is False]
+    misses.sort(key=lambda w: w['id'], reverse=True)
+    return [{k: w.get(k) for k in ('id', 'name', 'predicted', 'predictedWin', 'actual', 'actualWin', 'actualGrid')}
+            for w in misses[:n]]
 
 
 MIN_PRIOR_WEEKENDS = 8   # archive predictions need at least this many earlier weekends to train on
@@ -289,7 +324,7 @@ def build_season(season, cal, ctx, current, cur_meeting, last_meeting, lineup):
             gate = {'session': qname, 'sessionStart': qstart, 'unlockAt': unlock,
                     'unlocked': False, 'reason': 'locked'}
             rows = pd.DataFrame()
-            if unlock is not None and now >= unlock and season >= config.WEEKEND_FROM:
+            if unlock is not None and now >= unlock and season >= config.TRAIN_FROM:
                 stored = feats[(feats['race_id'] == rid) & (feats['kind'] == kind)]
                 if rnd['done'] and len(stored):
                     rows = hist[hist['race_id'] == rid].merge(stored.drop(columns=['kind', 'number']),
@@ -307,13 +342,22 @@ def build_season(season, cal, ctx, current, cur_meeting, last_meeting, lineup):
             rows['team'] = rows['constructorName'].fillna(rows['constructorId'].map(team_names))
             # model trained only on weekends before this one (archive) or on everything (live)
             prior = train_all[train_all['race_id'] < rid]
-            if rnd['done'] and prior['race_id'].nunique() < MIN_PRIOR_WEEKENDS:
+            replay = ctx.state['byRace'].get(rid)
+            if rnd['done'] and replay is None and prior['race_id'].nunique() < MIN_PRIOR_WEEKENDS:
                 gate['reason'] = 'not-enough-history'      # too early in 2023 to predict honestly
                 continue
+            probs, temp = None, 1.0
             if rnd['done']:
-                wm, lm, n_tr = model.fit(ctx.best_name, prior), model.fit('Logistic regression', prior), prior['race_id'].nunique()
-            else:
-                wm, lm, n_tr = ctx.win_model, ctx.lr_model, ctx.n_weekends
+                # what the model said at the time: the replayed blend (GP) or its most trusted setup then (sprint)
+                setup = learning.parse(replay['combo']) if replay else (ctx.state['key'], ctx.state['halfLife'])
+                if kind == 'gp' and replay:
+                    wm, probs = None, replay['probs']
+                else:
+                    wm = model.fit_setup(*setup, prior)
+                lm, n_tr = model.fit('Logistic regression', prior), prior['race_id'].nunique()
+            else:   # live weekend: every setup trained on all finished races, blended by the learned weights
+                wm, lm, n_tr = None, ctx.lr_model, ctx.n_weekends
+                probs = learning.ensemble_probs(ctx.state, train_all, rows)
             if rnd['done']:
                 rain, rain_src = config.RAIN_DEFAULT, 'default'
             else:
@@ -323,7 +367,7 @@ def build_season(season, cal, ctx, current, cur_meeting, last_meeting, lineup):
                 rain, rain_src = (fc, 'forecast') if fc is not None else (config.RAIN_DEFAULT, 'default')
             actual = actual_gp if kind == 'gp' else (history.sprint_winner(season, int(rnd['round']), cached=bool(rnd['done']))
                                                     if rnd['done'] or now > rnd['raceStart'] - pd.Timedelta(days=1) else None)
-            preds[kind] = prediction_block(rows, wm, lm, rain, rain_src, kind, actual, n_tr)
+            preds[kind] = prediction_block(rows, wm, lm, rain, rain_src, kind, actual, n_tr, temp, probs)
             gate['unlocked'] = True
             log(f'   {wid} {kind}: pick {preds[kind]["predictedWinner"]}, actual {actual}')
 
@@ -337,6 +381,8 @@ def build_season(season, cal, ctx, current, cur_meeting, last_meeting, lineup):
         cards = driver_cards(meeting, season, not is_current, last_meeting) if (meeting or is_current) else {}
         if not cards and lineup:
             cards = lineup
+        if not cards:   # seasons before OpenF1: names and team colours from the results, no photos
+            cards = cards_from_results(hist[hist['race_id'] == rid])
         page = {
             'id': wid, 'season': season, 'round': int(rnd['round']), 'name': rnd['raceName'],
             'circuitId': rnd['circuitId'], 'circuitName': rnd['circuitName'], 'locality': rnd['locality'],
@@ -355,6 +401,8 @@ def build_season(season, cal, ctx, current, cur_meeting, last_meeting, lineup):
                            'predicted': gp['predictedWinner'] if gp else None,
                            'predictedWin': gp['results'][0]['win'] if gp else None,
                            'actual': actual_gp, 'hit': gp['hit'] if gp else None,
+                           'actualWin': next((r['win'] for r in gp['results'] if r['code'] == actual_gp), None) if gp and actual_gp else None,
+                           'actualGrid': next((r['qPos'] for r in gp['results'] if r['code'] == actual_gp), None) if gp and actual_gp else None,
                            'unlocked': bool(gp)})
 
     return index_rows

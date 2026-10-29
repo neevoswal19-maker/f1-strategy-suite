@@ -13,16 +13,36 @@ from .weekend import WEEKEND_FEATS
 FEATS = FORM_FEATS + WEEKEND_FEATS
 
 
+def _lr(c):
+    return lambda: make_pipeline(StandardScaler(), LogisticRegression(C=c, max_iter=3000))
+
+
+def _gb(n, depth, lr):
+    return lambda: GradientBoostingClassifier(n_estimators=n, max_depth=depth, learning_rate=lr,
+                                              random_state=config.SEED)
+
+
+# the setups the model chooses between every time it retrains
+CONFIGS = {
+    'lr-0.1': ('Logistic regression', 'strong regularisation', _lr(0.1)),
+    'lr-0.5': ('Logistic regression', 'medium regularisation', _lr(0.5)),
+    'lr-2': ('Logistic regression', 'light regularisation', _lr(2.0)),
+    'gb-150x2': ('Gradient boosting', '150 trees, depth 2', _gb(150, 2, 0.05)),
+    'gb-300x2': ('Gradient boosting', '300 trees, depth 2', _gb(300, 2, 0.03)),
+    'gb-200x3': ('Gradient boosting', '200 trees, depth 3', _gb(200, 3, 0.03)),
+}
+HALF_LIVES = [None, 40, 20]          # weekends; None = every past race counts the same
+DEFAULT = ('gb-150x2', None)         # the setup the site launched with, kept as a comparison
+
+
 def candidates():
-    return {
-        'Logistic regression': make_pipeline(StandardScaler(), LogisticRegression(C=0.5, max_iter=2000)),
-        'Gradient boosting': GradientBoostingClassifier(n_estimators=150, max_depth=2, learning_rate=0.05,
-                                                        random_state=config.SEED),
-    }
+    return {'Logistic regression': _lr(0.5)(), 'Gradient boosting': _gb(150, 2, 0.05)()}
 
 
-def race_probs(model, df):
-    p = pd.Series(model.predict_proba(df[FEATS])[:, 1], index=df.index)
+def race_probs(model, df, temp=1.0):
+    """Win probability per driver, normalised per race. temp > 1 flattens over-confident odds."""
+    p = pd.Series(model.predict_proba(df[FEATS])[:, 1], index=df.index).clip(1e-9)
+    p = p ** (1.0 / temp)
     return p / p.groupby(df['race_id']).transform('sum')
 
 
@@ -33,21 +53,22 @@ def score(p, df):
             'avgPWinner': float(w['p'].mean()), 'logLoss': float(-np.log(w['p'].clip(1e-6)).mean())}
 
 
-def backtest(train_all):
-    """Hold out the last TEST_RACES weekends; compare both models with 'pole sitter wins'."""
-    ids = np.sort(train_all['race_id'].unique())
-    cut = ids[-config.TEST_RACES]
-    tr, te = train_all[train_all['race_id'] < cut], train_all[train_all['race_id'] >= cut]
-    results = {}
-    for name, m in candidates().items():
-        m.fit(tr[FEATS], tr['win'])
-        results[name] = score(race_probs(m, te), te)
-    won = te['win'] == 1
-    pole = te['q_pos'].groupby(te['race_id']).rank(method='first')
-    results['Pole sitter wins'] = {'topPickWon': float((pole[won] == 1).mean()),
-                                   'winnerInTop3': float((pole[won] <= 3).mean())}
-    best = min((n for n in results if 'logLoss' in results[n]), key=lambda n: results[n]['logLoss'])
-    return best, results, {'races': int(te['race_id'].nunique()), 'from': int(cut), 'to': int(ids[-1])}
+def weights(df, half_life):
+    if not half_life:
+        return None
+    order = df['race_id'].rank(method='dense')
+    age = order.max() - order
+    return (0.5 ** (age / half_life)).values
+
+
+def fit_setup(key, half_life, df):
+    m = CONFIGS[key][2]()
+    w = weights(df, half_life)
+    if hasattr(m, 'steps'):
+        m.fit(df[FEATS], df['win'], **({'logisticregression__sample_weight': w} if w is not None else {}))
+    else:
+        m.fit(df[FEATS], df['win'], sample_weight=w)
+    return m
 
 
 def fit(name, df):
@@ -106,6 +127,8 @@ def describe(df, i, group):
             return 'On pole' + (f', {margin:.3f} s clear of P2' if pd.notna(margin) else '')
         return f"Starts P{pos}, {r['q_gap'] * r['pole_time']:.3f} s off pole"
     if group == 'practice':
+        if not r.get('has_fp', 1):
+            return 'No practice data for seasons before 2023'
         lr = _rank(df, 'fp_lr_gap')[i]
         sess = str(r.get('fp_session', 'practice')).replace('Practice ', 'FP')
         if lr == 1:

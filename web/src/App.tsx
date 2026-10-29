@@ -3,6 +3,7 @@ import { useHashWeekend, useIndex, useTrack, useWeekend } from './lib/data'
 import Archive from './components/Archive'
 import { Footer, Nav } from './components/Chrome'
 import Hero from './components/Hero'
+import LearningPanel from './components/LearningPanel'
 import LightsOut from './components/LightsOut'
 import PredictPanel from './components/PredictPanel'
 import SimPanel from './components/SimPanel'
@@ -61,6 +62,15 @@ export default function App() {
             <Timeline weekend={weekend.data} />
             <PredictPanel weekend={weekend.data} index={index.data} />
             <SimPanel weekend={weekend.data} track={track.data} />
+            {index.data && (
+              <LearningPanel
+                index={index.data}
+                onPick={wid => {
+                  go(wid === index.data!.current ? null : wid)
+                  window.scrollTo({ top: 0, behavior: 'smooth' })
+                }}
+              />
+            )}
             {index.data && (
               <Archive
                 index={index.data}

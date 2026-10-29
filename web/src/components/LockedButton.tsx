@@ -17,7 +17,7 @@ export default function LockedButton({ gate, label, finished = false }: { gate?:
       </button>
       <p id={why} className="text-sm text-body">
         {gate?.reason === 'not-enough-history' ? (
-          'No prediction for this race: the model needs at least 8 earlier weekends of practice and qualifying data to learn from, and OpenF1 data starts in 2023.'
+          'No prediction for this race: the model needs at least 8 earlier weekends to learn from, and its history starts in 2019.'
         ) : finished ? (
           'No prediction for this race: OpenF1 has no usable practice or qualifying laps for it.'
         ) : !gate || !unlockAt ? (

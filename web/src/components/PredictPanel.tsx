@@ -15,7 +15,9 @@ type Kind = 'gp' | 'sprint'
 function LoadingLog({ pred, onDone }: { pred: Prediction; onDone: () => void }) {
   const lines = useMemo(
     () => [
-      `${pred.sessions.practice}: long-run pace for ${pred.counts.drivers} drivers`,
+      pred.sessions.practice
+        ? `${pred.sessions.practice}: long-run pace for ${pred.counts.drivers} drivers`
+        : 'No practice data before 2023, so qualifying and form carry the pick',
       `${pred.sessions.qualifying}: grid order and gaps to pole`,
       `Form, reliability and track history from ${pred.counts.trainingWeekends} past weekends`,
       `Rain chance ${Math.round(pred.rainChance * 100)}% (${pred.rainSource === 'forecast' ? 'forecast' : 'no forecast, using the default'})`,
@@ -240,20 +242,21 @@ function FieldOdds({ pred, drivers }: { pred: Prediction; drivers: Record<string
 function ModelNote({ index }: { index: Index | null }) {
   if (!index) return null
   const m = index.model
-  const mine = m.backtest[m.name]
-  const pole = m.backtest['Pole sitter wins']
+  const record = m.learning?.overall ?? m.backtest
+  const mine = record['Self-learning model'] ?? record[m.name]
+  const pole = record['Pole sitter wins']
   if (!mine || !pole) return null
   return (
     <div className="mt-14 grid gap-px border border-line bg-line sm:grid-cols-3">
       <div className="bg-canvas p-5">
         <p className="label">Model</p>
         <p className="mt-2 text-ink">{m.name}</p>
-        <p className="mt-1 text-sm">Trained on {m.trainingWeekends} weekends since 2023</p>
+        <p className="mt-1 text-sm">Learns after every race, now on {m.trainingWeekends} weekends</p>
       </div>
       <div className="bg-canvas p-5">
-        <p className="label">Back-test, last {m.window.races} races</p>
+        <p className="label">Replayed, {m.learning?.replayed ?? m.window.races} races</p>
         <p className="num mt-2 text-2xl text-ink">{pct(mine.topPickWon, 0)} <span className="font-sans text-sm text-body">top pick won</span></p>
-        <p className="num text-sm">{pct(mine.winnerInTop3, 0)} winner in its top 3</p>
+        {mine.avgPWinner != null && <p className="num text-sm">{pct(mine.avgPWinner, 0)} average chance given to the winner</p>}
       </div>
       <div className="bg-canvas p-5">
         <p className="label">Baseline</p>
@@ -276,7 +279,7 @@ export default function PredictPanel({ weekend, index }: { weekend: Weekend; ind
   return (
     <section id="prediction" className="scroll-mt-16 mx-auto max-w-[1400px] px-4 py-20 sm:px-8 lg:py-28">
       <SectionHead title="Predicted winner">
-        A model trained on every weekend since 2023 reads this weekend's practice long runs and qualifying,
+        A model trained on every weekend since 2019 reads this weekend's practice long runs and qualifying,
         adds recent form, the car, reliability and each driver's record here, then turns it into a win chance.
       </SectionHead>
 
@@ -306,7 +309,9 @@ export default function PredictPanel({ weekend, index }: { weekend: Weekend; ind
               Show predicted winner
             </button>
           </ClickSpark>
-          <p className="text-sm">Uses {pred.sessions.practice} and {pred.sessions.qualifying} from this weekend.</p>
+          <p className="text-sm">
+            Uses {pred.sessions.practice ? `${pred.sessions.practice} and ` : ''}{pred.sessions.qualifying} from this weekend.
+          </p>
         </div>
       ) : (
         <AnimatePresence mode="wait">

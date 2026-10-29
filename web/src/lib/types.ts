@@ -31,7 +31,7 @@ export interface Prediction {
   label: string
   rainChance: number
   rainSource: 'forecast' | 'default'
-  sessions: { practice: string; qualifying: string }
+  sessions: { practice: string | null; qualifying: string }
   counts: { drivers: number; trainingWeekends: number }
   results: DriverResult[]
   predictedWinner: string
@@ -106,6 +106,33 @@ export interface WeekendSummary {
   actual: string | null
   hit: boolean | null
   unlocked: boolean
+  actualWin?: number | null
+  actualGrid?: number | null
+}
+
+export interface LearningEntry {
+  raceId: number
+  race: string
+  setup: string
+  halfLife: number | null
+  trust: number
+  picked: string
+  pickWin: number
+  winner: string
+  winnerP: number | null
+  hit: boolean
+  fixedHit: boolean
+  poleHit: boolean
+}
+
+export interface Mistake {
+  id: string
+  name: string
+  predicted: string
+  predictedWin: number
+  actual: string
+  actualWin: number | null
+  actualGrid: number | null
 }
 
 export interface BacktestRow { topPickWon: number; winnerInTop3: number; avgPWinner?: number; logLoss?: number }
@@ -129,7 +156,21 @@ export interface Index {
     importance: Record<string, number>
     trainingWeekends: number
     features: string[]
+    learning?: {
+      trusted: { setup: string; halfLife: number | null; weight: number }[]
+      calibration: { said: number; won: number; races: number }[]
+      setups: number
+      replayed: number
+      overall: Record<string, BacktestRow>
+      recent: Record<string, BacktestRow>
+      eta: number
+      alpha: number
+      eras?: Record<string, Record<string, BacktestRow> & { races: number }>
+      firstRace?: number
+      history: LearningEntry[]
+    }
   }
+  mistakes?: Mistake[]
   simulator: SimulatorCard
   weekends: WeekendSummary[]
 }
