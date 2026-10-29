@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { Index, Track, Weekend } from './types'
+import type { Index, SeasonSummary, Track, Weekend } from './types'
 
 const BASE = `${import.meta.env.BASE_URL}data/`
 
@@ -39,6 +39,7 @@ export const useIndex = () => useJSON<Index>('index.json', 10 * 60_000)
 export const useWeekend = (id: string | null, refreshMs = 0) =>
   useJSON<Weekend>(id ? `weekends/${id}.json` : null, refreshMs)
 export const useTrack = (file: string | null) => useJSON<Track>(file)
+export const useSeason = (season: number | null) => useJSON<SeasonSummary>(season ? `seasons/${season}.json` : null)
 
 /** Weekend id from the URL hash (#/2026-18), so archive pages can be linked. */
 export function useHashWeekend(): [string | null, (id: string | null) => void] {

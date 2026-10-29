@@ -49,7 +49,7 @@ export default function App() {
     <>
       <LightsOut />
       <Noise opacity={0.045} fps={12} fixed zIndex={60} />
-      <Nav index={index.data} viewingArchive={viewingArchive} onCurrent={() => go(null)} />
+      <Nav viewingArchive={viewingArchive} onCurrent={() => go(null)} />
       <main>
         {index.error || weekend.error ? (
           <Problem message={index.error ?? weekend.error ?? ''} />

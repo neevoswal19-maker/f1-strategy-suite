@@ -297,7 +297,7 @@ export default function PredictPanel({ weekend, index }: { weekend: Weekend; ind
       )}
 
       {!pred ? (
-        <LockedButton gate={weekend.gates[kind]} label="Show predicted winner" />
+        <LockedButton gate={weekend.gates[kind]} label="Show predicted winner" finished={weekend.status === 'done'} />
       ) : phase === 'idle' ? (
         <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:gap-6">
           <ClickSpark sparkColor={['#e0362c', '#f4f4f5']} sparkCount={10} sparkRadius={26}>

@@ -44,7 +44,7 @@ export interface Gate {
   sessionStart: string | null
   unlockAt: string | null
   unlocked: boolean
-  reason: 'locked' | 'ready' | 'waiting-for-data'
+  reason: 'locked' | 'ready' | 'waiting-for-data' | 'not-enough-history'
 }
 
 export interface DriverCard {
@@ -110,11 +110,18 @@ export interface WeekendSummary {
 
 export interface BacktestRow { topPickWon: number; winnerInTop3: number; avgPWinner?: number; logLoss?: number }
 
+export interface SeasonSummary {
+  season: number
+  hitRate: { hits: number; races: number }
+  weekends: WeekendSummary[]
+}
+
 export interface Index {
   season: number
   generatedAt: string
   current: string
   hitRate: { hits: number; races: number }
+  seasons?: { season: number; hits: number; races: number }[]
   model: {
     name: string
     backtest: Record<string, BacktestRow>

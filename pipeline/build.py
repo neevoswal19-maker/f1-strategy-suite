@@ -7,6 +7,7 @@ import json
 import math
 import os
 import time
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -195,7 +196,48 @@ def main():
                 'params': [{'key': k, 'label': l, 'desc': d} for k, l, d in simparams.PARAMS],
                 'fittedOn': sim_n}
 
-    meetings_cache = {}
+    ctx = SimpleNamespace(now=now, races=races, hist=hist, cond=cond, feats=feats, train_all=train_all,
+                          best_name=best_name, win_model=win_model, lr_model=lr_model, n_weekends=n_weekends,
+                          team_names=team_names, sim_card=sim_card, window=window)
+
+    # the current season is rebuilt every run; finished seasons only when their summary is missing
+    seasons = []
+    for y in range(config.WEEKEND_FROM, season + 1):
+        summary_file = config.OUT_DIR / 'seasons' / f'{y}.json'
+        if y < season and summary_file.exists() and not os.environ.get('FULL_REBUILD'):
+            summary = json.loads(summary_file.read_text(encoding='utf-8'))
+        else:
+            cal_y = cal if y == season else races[races['season'] == y].reset_index(drop=True)
+            cal_y = cal_y.assign(done=cal_y['raceStart'] + pd.Timedelta(hours=3) < now)
+            rows = build_season(y, cal_y, ctx,
+                                current if y == season else None,
+                                cur_meeting if y == season else None,
+                                last_meeting if y == season else None,
+                                lineup if y == season else {})
+            scored = [r for r in rows if r['hit'] is not None]
+            summary = {'season': y, 'hitRate': {'hits': sum(r['hit'] for r in scored), 'races': len(scored)},
+                       'weekends': rows}
+            write(summary_file, summary)
+            log(f'Season {y}: hit rate {summary["hitRate"]}')
+        seasons.append(summary)
+
+    this = seasons[-1]
+    index = {'season': season, 'generatedAt': now,
+             'current': next((r['id'] for r in this['weekends'] if r['status'] == 'current'), this['weekends'][-1]['id']),
+             'hitRate': this['hitRate'],
+             'seasons': [{'season': s['season'], **s['hitRate']} for s in seasons],
+             'model': model_card, 'simulator': sim_card, 'weekends': this['weekends']}
+    write(config.OUT_DIR / 'index.json', index)
+    log(f'Done. {season} hit rate {index["hitRate"]}')
+
+
+MIN_PRIOR_WEEKENDS = 8   # archive predictions need at least this many earlier weekends to train on
+
+
+def build_season(season, cal, ctx, current, cur_meeting, last_meeting, lineup):
+    """Write weekends/<season>-<round>.json for every round and return the season's summary rows."""
+    now, hist, cond, feats, train_all = ctx.now, ctx.hist, ctx.cond, ctx.feats, ctx.train_all
+    team_names, races = ctx.team_names, ctx.races
     index_rows = []
     for _, rnd in cal.iterrows():
         rid = season * 100 + int(rnd['round'])
@@ -204,7 +246,6 @@ def main():
         status = 'done' if rnd['done'] else ('current' if is_current else 'upcoming')
         meeting = (cur_meeting if is_current else
                    (weekend.meeting_for(rnd['raceStart'], cached=bool(rnd['done'])) if rnd['raceStart'] < now + pd.Timedelta(days=7) else None))
-        meetings_cache[rid] = meeting
 
         # track
         track_file = None
@@ -266,10 +307,13 @@ def main():
             rows['team'] = rows['constructorName'].fillna(rows['constructorId'].map(team_names))
             # model trained only on weekends before this one (archive) or on everything (live)
             prior = train_all[train_all['race_id'] < rid]
-            if rnd['done'] and prior['race_id'].nunique() >= 15:
-                wm, lm, n_tr = model.fit(best_name, prior), model.fit('Logistic regression', prior), prior['race_id'].nunique()
+            if rnd['done'] and prior['race_id'].nunique() < MIN_PRIOR_WEEKENDS:
+                gate['reason'] = 'not-enough-history'      # too early in 2023 to predict honestly
+                continue
+            if rnd['done']:
+                wm, lm, n_tr = model.fit(ctx.best_name, prior), model.fit('Logistic regression', prior), prior['race_id'].nunique()
             else:
-                wm, lm, n_tr = win_model, lr_model, n_weekends
+                wm, lm, n_tr = ctx.win_model, ctx.lr_model, ctx.n_weekends
             if rnd['done']:
                 rain, rain_src = config.RAIN_DEFAULT, 'default'
             else:
@@ -299,7 +343,7 @@ def main():
             'country': rnd['country'], 'raceStart': rnd['raceStart'], 'sprint': bool(rnd['sprint']),
             'status': status, 'sessions': sessions, 'gates': gates, 'track': track_file,
             'circuit': stats, 'forecast': forecast, 'drivers': cards,
-            'prediction': preds, 'simulator': sim_card, 'model': {'name': best_name, 'window': window},
+            'prediction': preds, 'simulator': ctx.sim_card, 'model': {'name': ctx.best_name, 'window': ctx.window},
             'generatedAt': now,
         }
         write(config.OUT_DIR / 'weekends' / f'{wid}.json', page)
@@ -313,13 +357,7 @@ def main():
                            'actual': actual_gp, 'hit': gp['hit'] if gp else None,
                            'unlocked': bool(gp)})
 
-    scored = [r for r in index_rows if r['hit'] is not None]
-    index = {'season': season, 'generatedAt': now,
-             'current': next((r['id'] for r in index_rows if r['status'] == 'current'), index_rows[-1]['id']),
-             'hitRate': {'hits': sum(r['hit'] for r in scored), 'races': len(scored)},
-             'model': model_card, 'simulator': sim_card, 'weekends': index_rows}
-    write(config.OUT_DIR / 'index.json', index)
-    log(f'Done. Season hit rate {index["hitRate"]}')
+    return index_rows
 
 
 if __name__ == '__main__':

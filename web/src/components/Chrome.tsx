@@ -7,7 +7,7 @@ const COLAB = 'https://colab.research.google.com/github/neevoswal19-maker/f1-str
 // section links scroll without touching the URL hash, which holds the selected weekend
 const jump = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
-export function Nav({ index, viewingArchive, onCurrent }: { index: Index | null; viewingArchive: boolean; onCurrent: () => void }) {
+export function Nav({ viewingArchive, onCurrent }: { viewingArchive: boolean; onCurrent: () => void }) {
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-canvas/85 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-[1400px] items-center justify-between gap-4 px-4 sm:px-8">
@@ -25,7 +25,7 @@ export function Nav({ index, viewingArchive, onCurrent }: { index: Index | null;
           )}
           <button onClick={() => jump('prediction')} className="label hidden min-h-11 items-center hover:text-ink md:flex">Prediction</button>
           <button onClick={() => jump('simulator')} className="label hidden min-h-11 items-center hover:text-ink md:flex">Simulator</button>
-          <button onClick={() => jump('season')} className="label hidden min-h-11 items-center hover:text-ink md:flex">{index?.season ?? ''} season</button>
+          <button onClick={() => jump('season')} className="label hidden min-h-11 items-center hover:text-ink md:flex">Seasons</button>
           <a href={COLAB} target="_blank" rel="noreferrer" className="grid size-11 place-items-center rounded-full bg-card text-ink hover:bg-raised" aria-label="Open the strategy notebook in Colab">
             <Notebook size={18} />
           </a>

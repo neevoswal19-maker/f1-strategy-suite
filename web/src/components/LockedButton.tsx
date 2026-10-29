@@ -4,7 +4,7 @@ import type { Gate } from '../lib/types'
 import { countdown, fmtWhen, useNow } from '../lib/time'
 
 /** The disabled state of a gated button, with why it is locked and when it opens. */
-export default function LockedButton({ gate, label }: { gate?: Gate; label: string }) {
+export default function LockedButton({ gate, label, finished = false }: { gate?: Gate; label: string; finished?: boolean }) {
   const now = useNow(1000)
   const why = useId()
   const unlockAt = gate?.unlockAt ? new Date(gate.unlockAt).getTime() : null
@@ -16,7 +16,11 @@ export default function LockedButton({ gate, label }: { gate?: Gate; label: stri
         {label}
       </button>
       <p id={why} className="text-sm text-body">
-        {!gate || !unlockAt ? (
+        {gate?.reason === 'not-enough-history' ? (
+          'No prediction for this race: the model needs at least 8 earlier weekends of practice and qualifying data to learn from, and OpenF1 data starts in 2023.'
+        ) : finished ? (
+          'No prediction for this race: OpenF1 has no usable practice or qualifying laps for it.'
+        ) : !gate || !unlockAt ? (
           'Unlocks once this weekend\'s qualifying is over.'
         ) : waiting ? (
           <>{gate.session} is over. This unlocks once the next data update has read the laps, usually within the hour.</>

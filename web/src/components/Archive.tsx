@@ -1,25 +1,66 @@
+import { useEffect, useState } from 'react'
 import { motion } from 'motion/react'
 import { CheckCircle, XCircle, LockSimple } from '@phosphor-icons/react'
 import type { Index } from '../lib/types'
+import { useSeason } from '../lib/data'
 import { fmtDate, pct } from '../lib/time'
 import SectionHead from './SectionHead'
 
 export default function Archive({ index, activeId, onPick }: { index: Index; activeId: string; onPick: (id: string) => void }) {
-  const { hits, races } = index.hitRate
+  const activeSeason = Number(activeId.slice(0, 4))
+  const [season, setSeason] = useState(activeSeason)
+  useEffect(() => setSeason(activeSeason), [activeSeason])
+
+  // the current season ships inside index.json; earlier ones load on demand
+  const past = useSeason(season !== index.season ? season : null)
+  const data = season === index.season ? { weekends: index.weekends, hitRate: index.hitRate } : past.data
+  const years = (index.seasons ?? [{ season: index.season, ...index.hitRate }]).map(s => s.season).sort((a, b) => b - a)
+  const { hits, races } = data?.hitRate ?? { hits: 0, races: 0 }
+
   return (
     <section id="season" className="scroll-mt-16 border-t border-line">
       <div className="mx-auto max-w-[1400px] px-4 py-20 sm:px-8 lg:py-28">
-        <SectionHead title={`${index.season} season`}>
+        <SectionHead title="Season by season">
           Every finished round, predicted the same way: with only the data that existed after qualifying, and a
           model trained on earlier weekends.{' '}
           {races > 0 && (
             <span className="text-ink">
-              It picked the winner in <span className="num">{hits}</span> of <span className="num">{races}</span> races ({pct(hits / races, 0)}).
+              In {season} it picked the winner in <span className="num">{hits}</span> of <span className="num">{races}</span> races ({pct(hits / races, 0)}).
             </span>
           )}
         </SectionHead>
+
+        <div role="tablist" aria-label="Season" className="mb-8 flex gap-6 overflow-x-auto overflow-y-hidden border-b border-line sm:gap-10">
+          {years.map(y => {
+            const s = index.seasons?.find(x => x.season === y)
+            return (
+              <button
+                key={y}
+                role="tab"
+                aria-selected={season === y}
+                onClick={() => setSeason(y)}
+                className={`-mb-px flex min-h-11 shrink-0 items-baseline gap-2 border-b-2 pb-3 font-display text-2xl font-bold ${
+                  season === y ? 'border-red text-ink' : 'border-transparent text-muted hover:text-ink'
+                }`}
+              >
+                {y}
+                {s && s.races > 0 && <span className="num text-xs font-normal text-muted">{s.hits}/{s.races}</span>}
+              </button>
+            )
+          })}
+        </div>
+
+        {!data ? (
+          past.error ? (
+            <p className="text-sm">Couldn't load {season}. Try again in a minute.</p>
+          ) : (
+            <div className="grid grid-cols-1 gap-px border border-line bg-line sm:grid-cols-2 lg:grid-cols-4" aria-busy="true">
+              {Array.from({ length: 8 }, (_, i) => <div key={i} className="h-36 animate-pulse bg-canvas" />)}
+            </div>
+          )
+        ) : (
         <ol className="grid grid-cols-1 gap-px border border-line bg-line sm:grid-cols-2 lg:grid-cols-4">
-          {index.weekends.map((w, i) => {
+          {data.weekends.map((w, i) => {
             const active = w.id === activeId
             const clickable = w.status !== 'upcoming' || w.unlocked
             return (
@@ -56,7 +97,7 @@ export default function Archive({ index, activeId, onPick }: { index: Index; act
                         <p className="num text-ink">{w.predicted} <span className="text-muted">{w.predictedWin ? pct(w.predictedWin, 0) : ''}</span></p>
                       </div>
                     ) : (
-                      <p className="flex items-center gap-1.5 text-xs text-muted"><LockSimple size={13} weight="bold" />{w.status === 'done' ? 'No weekend data' : 'After qualifying'}</p>
+                      <p className="flex items-center gap-1.5 text-xs text-muted"><LockSimple size={13} weight="bold" />{w.status === 'done' ? 'No prediction' : 'After qualifying'}</p>
                     )}
                     {w.actual && (
                       <div className="flex items-center gap-2 text-right">
@@ -74,6 +115,7 @@ export default function Archive({ index, activeId, onPick }: { index: Index; act
             )
           })}
         </ol>
+        )}
       </div>
     </section>
   )

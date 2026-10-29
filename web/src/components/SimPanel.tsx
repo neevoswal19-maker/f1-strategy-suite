@@ -337,7 +337,7 @@ export default function SimPanel({ weekend, track }: { weekend: Weekend; track: 
         </SectionHead>
 
         {!pred ? (
-          <LockedButton gate={weekend.gates.gp} label="Simulate race" />
+          <LockedButton gate={weekend.gates.gp} label="Simulate race" finished={weekend.status === 'done'} />
         ) : (
           <>
             <div className="flex flex-wrap items-center gap-3">
